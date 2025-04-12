@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Copy, ExternalLink, LogOut } from "lucide-react";
+import { Copy, ExternalLink, LogOut, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
     Tooltip,
@@ -15,6 +15,10 @@ export default function Wallet() {
     const [balance, setBalance] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [network, setNetwork] = useState<string | null>(null);
+    const [isCorrectNetwork, setIsCorrectNetwork] = useState(true);
+
+    // Ethereum Mainnet chain ID
+    const ETHEREUM_CHAIN_ID = "0x1"; // 1 in decimal
 
     async function getNetworkName(chainId: string) {
         const chainIdNum = parseInt(chainId, 16);
@@ -52,8 +56,26 @@ export default function Wallet() {
             });
             const networkName = await getNetworkName(chainId);
             setNetwork(networkName);
+
+            // Check if on Ethereum Mainnet
+            setIsCorrectNetwork(chainId === ETHEREUM_CHAIN_ID);
         } catch (error) {
             console.error("Failed to update wallet info:", error);
+        }
+    }
+
+    async function switchToEthereum() {
+        try {
+            await window.ethereum!.request({
+                method: "wallet_switchEthereumChain",
+                params: [{ chainId: ETHEREUM_CHAIN_ID }],
+            });
+        } catch (error: any) {
+            console.error("Failed to switch network:", error);
+            if (error.code === 4902) {
+                // Chain not added, suggest adding it
+                alert("Please add the Ethereum network to MetaMask.");
+            }
         }
     }
 
@@ -68,11 +90,22 @@ export default function Wallet() {
                 setAddress(addr);
                 await updateWalletInfo(addr);
                 setConnected(true);
+
+                // Save connection state to localStorage
+                localStorage.setItem("walletConnected", "true");
+                localStorage.setItem("walletAddress", addr);
             } catch (error) {
                 console.error("Failed to connect wallet:", error);
             }
         } else {
-            alert("Please install MetaMask!");
+            // Redirect to MetaMask download page
+            if (
+                confirm(
+                    "MetaMask is not installed. Would you like to download it now?"
+                )
+            ) {
+                window.open("https://metamask.io/download/", "_blank");
+            }
         }
     }
 
@@ -81,6 +114,11 @@ export default function Wallet() {
         setAddress(null);
         setBalance(null);
         setNetwork(null);
+        setIsCorrectNetwork(true);
+
+        // Clear localStorage
+        localStorage.removeItem("walletConnected");
+        localStorage.removeItem("walletAddress");
     }
 
     function copyAddress() {
@@ -95,13 +133,24 @@ export default function Wallet() {
         return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
     }
 
+    // Initialize connection from localStorage if available
+    useEffect(() => {
+        const isConnected = localStorage.getItem("walletConnected") === "true";
+        const savedAddress = localStorage.getItem("walletAddress");
+
+        if (isConnected && savedAddress && window.ethereum) {
+            setAddress(savedAddress);
+            setConnected(true);
+            updateWalletInfo(savedAddress);
+        }
+    }, []);
+
     // Add network change and account change event listeners
     useEffect(() => {
         if (window.ethereum && connected) {
             // Network change event
             const handleChainChanged = (chainId: string) => {
-                // Refresh page
-                window.location.reload();
+                updateWalletInfo(address!);
             };
 
             // Account change event
@@ -113,6 +162,7 @@ export default function Wallet() {
                     // Change to different account
                     setAddress(accounts[0]);
                     updateWalletInfo(accounts[0]);
+                    localStorage.setItem("walletAddress", accounts[0]);
                 }
             };
 
@@ -207,6 +257,18 @@ export default function Wallet() {
                             {network && <span>Network: {network} | </span>}
                             Balance: {balance} ETH
                         </span>
+
+                        {!isCorrectNetwork && (
+                            <div className="mt-1 flex items-center gap-1 text-xs text-yellow-500">
+                                <AlertTriangle size={12} />
+                                <button
+                                    className="underline hover:text-yellow-600"
+                                    onClick={switchToEthereum}
+                                >
+                                    Switch to Ethereum Mainnet
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             ) : (
